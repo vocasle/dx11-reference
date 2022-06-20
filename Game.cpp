@@ -6,12 +6,34 @@
 #include "Game.h"
 
 #include <DirectXMath.h>
+#include <BufferHelpers.h>
+#include <VertexTypes.h>
+#include <Effects.h>
+#include <DirectXHelpers.h>
 
 extern void ExitGame() noexcept;
 
 using namespace DirectX;
 
 using Microsoft::WRL::ComPtr;
+
+namespace
+{
+    static const VertexPositionColor s_vertexData[3] =
+    {
+        { XMFLOAT3{ 0.0f,   0.5f,  0.5f }, XMFLOAT4{ 1.0f, 0.0f, 0.0f, 1.0f } },  // Top / Red
+        { XMFLOAT3{ 0.5f,  -0.5f,  0.5f }, XMFLOAT4{ 0.0f, 1.0f, 0.0f, 1.0f } },  // Right / Green
+        { XMFLOAT3{ -0.5f, -0.5f,  0.5f }, XMFLOAT4{ 0.0f, 0.0f, 1.0f, 1.0f } }   // Left / Blue
+    };
+
+    ComPtr<ID3D11Buffer> g_VertexBuffer;
+    ComPtr<ID3D11Buffer> g_IndexBuffer;
+    std::unique_ptr<BasicEffect> g_BasicEffect;
+    ComPtr<ID3D11InputLayout> g_InputLayout;
+    XMFLOAT4X4 g_World;
+    XMFLOAT4X4 g_View;
+    XMFLOAT4X4 g_Projection;
+}
 
 Game::Game() noexcept(false)
 {
@@ -43,6 +65,26 @@ void Game::Initialize(HWND window, int width, int height)
     m_keyboard = std::make_unique<Keyboard>();
     m_mouse = std::make_unique<Mouse>();
     m_mouse->SetWindow(window);
+
+    // TMP Start
+    {
+        DX::ThrowIfFailed(CreateStaticBuffer(m_deviceResources->GetD3DDevice(), s_vertexData, 3, D3D11_BIND_VERTEX_BUFFER, &g_VertexBuffer));
+        const unsigned int indices[] = {
+            0, 1, 2,
+            0, 2, 3,
+        };
+        DX::ThrowIfFailed(CreateStaticBuffer(m_deviceResources->GetD3DDevice(), indices, 6, D3D11_BIND_INDEX_BUFFER, &g_IndexBuffer));
+
+         g_BasicEffect = std::make_unique<BasicEffect>(m_deviceResources->GetD3DDevice());
+
+        DX::ThrowIfFailed(CreateInputLayoutFromEffect<VertexPositionColor>(
+            m_deviceResources->GetD3DDevice(), g_BasicEffect.get(), &g_InputLayout));
+
+        XMStoreFloat4x4(&g_World, XMMatrixIdentity());
+        XMStoreFloat4x4(&g_Projection, XMMatrixIdentity());
+        XMStoreFloat4x4(&g_View, XMMatrixIdentity());
+    }
+   // TMP End
 }
 
 #pragma region Frame Update
@@ -70,6 +112,19 @@ void Game::Update(DX::StepTimer const& timer)
     {
         ExitGame();
     }
+
+    const XMFLOAT3 eyePosition_(0.0f, 5.0f, 10.0f);
+    const XMVECTOR eyePosition = XMLoadFloat3(&eyePosition_);
+    const XMFLOAT3 focusPosition_(0.0f, 0.0f, 0.0f);
+    const XMVECTOR focusPosition = XMLoadFloat3(&focusPosition_);
+    const XMFLOAT3 upDirection_(0.0f, 1.0f, 0.0f);
+    const XMVECTOR upDirection = XMLoadFloat3(&upDirection_);
+    const XMMATRIX view = XMMatrixLookAtLH(eyePosition, focusPosition, upDirection);
+    const RECT outSize = m_deviceResources->GetOutputSize();
+    const XMMATRIX proj = XMMatrixPerspectiveFovLH(XMConvertToRadians(45.0f), float(outSize.right) / float(outSize.bottom), 0.1f, 100.0f);
+
+    const XMMATRIX world = XMLoadFloat4x4(&g_World);
+    g_BasicEffect->SetMatrices(world, view, proj);
 }
 #pragma endregion
 
@@ -89,7 +144,14 @@ void Game::Render()
     auto context = m_deviceResources->GetD3DDeviceContext();
 
     // TODO: Add your rendering code here.
-    context;
+    g_BasicEffect->Apply(m_deviceResources->GetD3DDeviceContext());
+    unsigned int strides = sizeof(VertexPositionColor);
+    unsigned int offsets = 0;
+    context->IASetVertexBuffers(0, 1, &g_VertexBuffer, &strides, &offsets);
+    context->IASetIndexBuffer(g_IndexBuffer.Get(), DXGI_FORMAT_R32_UINT, 0);
+    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    context->IASetInputLayout(g_InputLayout.Get());
+    context->DrawIndexed(6, 0, 0);
 
     m_deviceResources->PIXEndEvent();
 
