@@ -1,7 +1,7 @@
 cmake_minimum_required (VERSION 3.13)
 
-project(CMakeDirect3DGame
-  DESCRIPTION "CMake example for Direct3D 11 Game (Win32)"
+project (CMakeDirect3DGameDR
+  DESCRIPTION "CMake example for Direct3D 11 Game (Win32) w/ DeviceResources"
   LANGUAGES CXX)
 
 option(BUILD_TEST_TEMPLATE "Ignore warnings related to TODOs" OFF)
@@ -33,6 +33,8 @@ endif()
 add_executable(${PROJECT_NAME} WIN32
     Game.cpp
     Game.h
+    DeviceResources.cpp
+    DeviceResources.h
     Main.cpp
     StepTimer.h
     pch.h
@@ -50,7 +52,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 )
 
 if(MSVC)
-    # Use max Warning Level 
+    # Use max Warning Level
     string(REPLACE "/W3 " "/Wall " CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
     string(REPLACE "/W3 " "/Wall " CMAKE_CXX_FLAGS_DEBUG ${CMAKE_CXX_FLAGS_DEBUG})
     string(REPLACE "/W3 " "/Wall " CMAKE_CXX_FLAGS_RELEASE ${CMAKE_CXX_FLAGS_RELEASE})
@@ -82,6 +84,9 @@ if (MINGW OR VCPKG_TOOLCHAIN)
     # find_package(directxtk CONFIG REQUIRED)
     # target_link_libraries(${PROJECT_NAME} PRIVATE Microsoft::DirectXTK)
 endif()
+
+add_subdirectory(DirectXTK)
+target_link_libraries(${PROJECT_NAME} PRIVATE DirectXTK)
 
 if ( CMAKE_CXX_COMPILER_ID MATCHES "Clang|IntelLLVM" )
     target_compile_options(${PROJECT_NAME} PRIVATE
@@ -138,3 +143,48 @@ if(WIN32)
 endif()
 
 set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})
+
+set_property(SOURCE ${pixel_shader_files} PROPERTY VS_SHADER_TYPE ps)
+set_property(SOURCE ${pixel_shader_files} PROPERTY VS_SHADER_ENTRYPOINT main)
+set_property(SOURCE ${pixel_shader_files} PROPERTY VS_SHADER_MODEL 5_0)
+set_property(SOURCE ${pixel_shader_files} PROPERTY VS_SHADER_FLAGS $<1:/DFLAGS_ADDED>)
+set_property(SOURCE ${pixel_shader_files} PROPERTY VS_SHADER_ENABLE_DEBUG true)
+set_property(SOURCE ${pixel_shader_files} PROPERTY VS_SHADER_DISABLE_OPTIMIZATIONS true)
+
+set_property(SOURCE ${vertex_shader_files} PROPERTY VS_SHADER_TYPE vs)
+set_property(SOURCE ${vertex_shader_files} PROPERTY VS_SHADER_ENTRYPOINT main)
+set_property(SOURCE ${vertex_shader_files} PROPERTY VS_SHADER_MODEL 5_0)
+set_property(SOURCE ${vertex_shader_files} PROPERTY VS_SHADER_FLAGS $<1:/DFLAGS_ADDED>)
+set_property(SOURCE ${vertex_shader_files} PROPERTY VS_SHADER_ENABLE_DEBUG true)
+set_property(SOURCE ${vertex_shader_files} PROPERTY VS_SHADER_DISABLE_OPTIMIZATIONS true)
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+	set(FXC_EXE "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.19041.0\\x64\\fxc.exe")
+	# Build HLSL shaders
+	set (shader_target ${PROJECT_NAME}-compile-shaders)
+	add_custom_target(${shader_target})
+
+	set(HLSL_SHADER_FILES ${vertex_shader_files} ${pixel_shader_files})
+
+	foreach(FILE ${HLSL_SHADER_FILES})
+		  get_filename_component(FILE_WE ${FILE} NAME_WE)
+		  get_source_file_property(shadertype ${FILE} VS_SHADER_TYPE)
+		  get_source_file_property(shadermodel ${FILE} VS_SHADER_MODEL)
+		  add_custom_command(TARGET ${shader_target}
+			  COMMAND ${FXC_EXE} /nologo
+						/Fh ${CMAKE_CURRENT_BINARY_DIR}/${FILE_WE}.h
+						/Emain
+						/T${shadertype}_${shadermodel}
+						$<IF:$<CONFIG:DEBUG>,/Od,/O1>
+						/Zi
+						/Fo ${CMAKE_CURRENT_BINARY_DIR}/${FILE_WE}.cso
+						/Fd ${CMAKE_CURRENT_BINARY_DIR}/${FILE_WE}.pdb
+						${FILE}
+				     MAIN_DEPENDENCY ${FILE}
+				     COMMENT "HLSL ${FILE}"
+				     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+				     VERBATIM)
+	endforeach(FILE)
+
+	add_dependencies(${PROJECT_NAME} ${shader_target})
+endif()
